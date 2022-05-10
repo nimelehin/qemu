@@ -40,7 +40,7 @@
 #include "qom/object.h"
 
 #define NUM_GICV2M_SPIS       64
-#define NUM_VIRTIO_TRANSPORTS 32
+#define NUM_VIRTIO_TRANSPORTS  8
 #define NUM_SMMU_IRQS          4
 
 #define ARCH_GIC_MAINT_IRQ  9
@@ -72,6 +72,10 @@ enum {
     VIRT_UART,
     VIRT_MMIO,
     VIRT_RTC,
+    VIRT_PL111,
+    VIRT_PL181,
+    VIRT_PL050K,
+    VIRT_PL050M,
     VIRT_FW_CFG,
     VIRT_PCIE,
     VIRT_PCIE_MMIO,

@@ -63,6 +63,7 @@
 #include "hw/intc/arm_gic.h"
 #include "hw/intc/arm_gicv3_common.h"
 #include "hw/irq.h"
+#include "hw/sd/sd.h"
 #include "kvm_arm.h"
 #include "hw/firmware/smbios.h"
 #include "qapi/visitor.h"
@@ -156,6 +157,10 @@ static const MemMapEntry base_memmap[] = {
     [VIRT_SECURE_GPIO] =        { 0x090b0000, 0x00001000 },
     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
+    [VIRT_PL111] =              { 0x0b010000, 0x00001000 },
+    [VIRT_PL181] =              { 0x0b020000, 0x00001000 },
+    [VIRT_PL050K] =             { 0x0b030000, 0x00001000 },
+    [VIRT_PL050M] =             { 0x0b040000, 0x00001000 },
     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
     [VIRT_SECURE_MEM] =         { 0x0e000000, 0x01000000 },
     [VIRT_PCIE_MMIO] =          { 0x10000000, 0x2eff0000 },
@@ -190,6 +195,10 @@ static const int a15irqmap[] = {
     [VIRT_GPIO] = 7,
     [VIRT_SECURE_UART] = 8,
     [VIRT_ACPI_GED] = 9,
+    [VIRT_PL050K] = 10,
+    [VIRT_PL050M] = 11,
+    [VIRT_PL111] = 12,
+    [VIRT_PL181] = 13,
     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
     [VIRT_SMMU] = 74,    /* ...to 74 + NUM_SMMU_IRQS - 1 */
@@ -902,6 +911,49 @@ static void create_rtc(const VirtMachineState *vms)
     qemu_fdt_setprop_cell(ms->fdt, nodename, "clocks", vms->clock_phandle);
     qemu_fdt_setprop_string(ms->fdt, nodename, "clock-names", "apb_pclk");
     g_free(nodename);
+}
+
+static void create_pl050(const VirtMachineState *vms)
+{
+    hwaddr kbase = vms->memmap[VIRT_PL050K].base;
+    hwaddr ksize = vms->memmap[VIRT_PL050K].size;
+    int kirq = vms->irqmap[VIRT_PL050K];
+
+    hwaddr mbase = vms->memmap[VIRT_PL050M].base;
+    hwaddr msize = vms->memmap[VIRT_PL050M].size;
+    int mirq = vms->irqmap[VIRT_PL050M];
+    sysbus_create_simple("pl050_keyboard", kbase, qdev_get_gpio_in(vms->gic, kirq));
+    sysbus_create_simple("pl050_mouse", mbase, qdev_get_gpio_in(vms->gic, mirq));
+}
+
+static void create_pl111(const VirtMachineState *vms)
+{
+    hwaddr base = vms->memmap[VIRT_PL111].base;
+    hwaddr size = vms->memmap[VIRT_PL111].size;
+    int irq = vms->irqmap[VIRT_PL111];
+    sysbus_create_simple("pl111", base, qdev_get_gpio_in(vms->gic, irq));
+}
+
+static void create_pl181(const VirtMachineState *vms)
+{
+    DeviceState *dev;
+    DriveInfo *dinfo;
+    hwaddr base = vms->memmap[VIRT_PL181].base;
+    hwaddr size = vms->memmap[VIRT_PL181].size;
+    int irq = vms->irqmap[VIRT_PL181];
+
+    dev = sysbus_create_varargs("pl181", base, qdev_get_gpio_in(vms->gic, irq), qdev_get_gpio_in(vms->gic, irq + 1), NULL);
+
+    dinfo = drive_get(IF_SD, 0, 0);
+    if (dinfo) {
+        DeviceState *card;
+
+        card = qdev_new(TYPE_SD_CARD);
+        qdev_prop_set_drive_err(card, "drive", blk_by_legacy_dinfo(dinfo),
+                                &error_fatal);
+        qdev_realize_and_unref(card, qdev_get_child_bus(dev, "sd-bus"),
+                                &error_fatal);
+    }
 }
 
 static DeviceState *gpio_key_dev;
@@ -2241,6 +2293,9 @@ static void machvirt_init(MachineState *machine)
     vms->highmem_ecam &= (!firmware_loaded || aarch64);
 
     create_rtc(vms);
+    create_pl050(vms);
+    create_pl111(vms);
+    create_pl181(vms);
 
     create_pcie(vms);
 
